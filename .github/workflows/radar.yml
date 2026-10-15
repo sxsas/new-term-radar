@@ -8,16 +8,20 @@ name: New-term radar
 #
 # Off until you opt in: set the repository variable RADAR_ENABLED to "true"
 # (Settings > Secrets and variables > Actions > Variables), add the secret AISA_API_KEY,
-# and commit your config.json (remove it from .gitignore first; it holds no secrets).
+# and commit your config.json (it is tracked; it holds no secrets).
 # Optional secrets: GOANYAPI_API_KEY (related queries in the keyword table),
-# RESEND_API_KEY, EMAIL_FROM, RADAR_EMAIL_TO (mail the reports),
+# RESEND_API_KEY + EMAIL_FROM + RADAR_EMAIL_TO (mail the reports),
+# RADAR_WEBHOOK_URL and RADAR_WEBHOOK_FORMAT (push them to a chat webhook),
 # GSC_TOKEN_JSON (the Search Console signal).
 #
-# State (state/radar.db and the snapshots) lives in the Actions cache: one entry per
-# run, restored by prefix, so the repository does not grow. A missing cache only means
-# the next run builds new snapshots and reports nothing that day; the leads database
-# would start over, so download the "radar-state" artifact now and then if you care
-# about the review's history.
+# Where the state lives:
+#   state/radar.db   committed back on every run. It is the leads history and cannot be
+#                    rebuilt, so it must outlive a lost or evicted cache.
+#   everything else  the Actions cache: one entry per run, restored by prefix, so the
+#                    repository grows by the database and nothing else. A missing cache
+#                    only means the next run builds fresh snapshots.
+# That commit also keeps the schedule alive: GitHub disables a scheduled workflow after
+# 60 days without repository activity, and every run here is activity.
 
 on:
   schedule:
@@ -34,7 +38,8 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write   # commit state/radar.db back; also keeps the schedule alive
+  issues: write     # push the report as an issue
 
 jobs:
   radar:
@@ -52,7 +57,7 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - name: Restore the state
+      - name: Restore the snapshots
         uses: actions/cache/restore@v4
         with:
           path: state
@@ -68,22 +73,53 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           RADAR_EMAIL_TO: ${{ secrets.RADAR_EMAIL_TO }}
+          RADAR_WEBHOOK_URL: ${{ secrets.RADAR_WEBHOOK_URL }}
+          RADAR_WEBHOOK_FORMAT: ${{ secrets.RADAR_WEBHOOK_FORMAT }}
         run: |
+          # newsites is skipped for now: DataForSEO rejects the whois-overview call
+          # it makes (upstream bug as of 2026-10). Drop it to turn the signal back on.
+          push=""
+          if [ -n "$RADAR_WEBHOOK_URL" ] || [ -n "$RADAR_EMAIL_TO" ]; then push="--mail"; fi
           if [ "$COMMAND" = "daily" ]; then
-            python -m radar daily --skip x,hf --out report.md ${RADAR_EMAIL_TO:+--mail}
+            python -m radar daily --skip x,hf,newsites --out report.md $push
           else
-            python -m radar sources --out report.md ${RADAR_EMAIL_TO:+--mail}
+            python -m radar sources --out report.md $push
           fi
           if [ -f report.md ]; then cat report.md >> "$GITHUB_STEP_SUMMARY"; fi
 
-      - name: Save the state
+      - name: Push the report as an issue
+        if: ${{ hashFiles('report.md') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body=$(head -c 60000 report.md)
+          gh issue create \
+            --title "radar $COMMAND $(date -u +%Y-%m-%d)" \
+            --label radar \
+            --body "$body" \
+          || gh issue create \
+            --title "radar $COMMAND $(date -u +%Y-%m-%d)" \
+            --body "$body"
+
+      - name: Save the snapshots
         if: always()
         uses: actions/cache/save@v4
         with:
           path: state
           key: radar-state-${{ github.run_id }}
 
-      - name: Keep the report and the state
+      - name: Commit the database
+        if: always()
+        run: |
+          [ -f state/radar.db ] || exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f state/radar.db
+          git diff --cached --quiet || git commit -m "radar: state after $COMMAND run ${{ github.run_id }}"
+          git pull --rebase --autostash || true
+          git push
+
+      - name: Keep the report
         if: always()
         uses: actions/upload-artifact@v4
         with:

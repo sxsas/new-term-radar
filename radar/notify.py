@@ -1,9 +1,13 @@
-"""Mail a report (Markdown) through Resend. Optional.
+"""Push a report (Markdown) out, through Resend mail and/or a chat webhook. Optional.
 
-Environment: RESEND_API_KEY, EMAIL_FROM (an address on a domain you verified in Resend),
-RADAR_EMAIL_TO (comma-separated for several). Without RADAR_EMAIL_TO it says so and does
-nothing: a missing recipient must not fail the run that produced the report.
-Needs the `markdown` package (pip install markdown).
+Mail: RESEND_API_KEY, EMAIL_FROM (an address on a domain you verified in Resend),
+RADAR_EMAIL_TO (comma-separated for several).
+
+Webhook: RADAR_WEBHOOK_URL, and RADAR_WEBHOOK_FORMAT = slack (default), feishu or
+dingtalk. Works with anything else that takes {"text": "..."} too.
+
+Neither channel configured says so and does nothing: a missing recipient must not fail
+the run that produced the report. Needs the `markdown` package (pip install markdown).
 """
 from __future__ import annotations
 
@@ -32,6 +36,51 @@ INLINE = {
 TAG = re.compile(r"<(" + "|".join(INLINE) + r")(\s[^>]*)?>")
 _ADDRESS = re.compile(r"^[^@\s<>\"']+@[^@\s<>\"']+\.[a-z]{2,}$", re.I)
 
+WEBHOOK_MAX = 4000   # reports run long; the table at the top is the part worth reading
+_MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+_MD_EMPHASIS = re.compile(r"\*\*([^*]+)\*\*|`([^`]+)`")
+_MD_TABLE_SEP = re.compile(r"^[ \t]*\|[\s:|-]+\|[ \t]*$", re.M)
+_MD_TABLE_ROW = re.compile(r"^[ \t]*\|(.+)\|[ \t]*$", re.M)
+
+
+def plain(md_text: str) -> str:
+    """Markdown as the chat apps want it: links stay links, tables turn into lines."""
+    text = _MD_TABLE_SEP.sub("", md_text)
+    text = _MD_TABLE_ROW.sub(lambda m: " · ".join(c.strip() for c in m.group(1).split("|") if c.strip()), text)
+    text = _MD_LINK.sub(r"\1 \2", text)
+    text = _MD_EMPHASIS.sub(lambda m: m.group(1) or m.group(2), text)
+    text = re.sub(r"^[ \t]*[-*][ \t]+", "", text, flags=re.M)
+    text = re.sub(r"^#+[ \t]*", "", text, flags=re.M)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if len(text) <= WEBHOOK_MAX:
+        return text
+    cut = text[:WEBHOOK_MAX].rsplit("\n", 1)[0]
+    return cut + "\n…"
+
+
+def webhook_body(fmt: str, subject: str, md_text: str) -> dict:
+    text = f"{subject}\n\n{plain(md_text)}" if subject else plain(md_text)
+    if fmt == "feishu":
+        return {"msg_type": "text", "content": {"text": text}}
+    if fmt == "dingtalk":
+        return {"msgtype": "text", "text": {"content": text}}
+    return {"text": text}      # slack and everything shaped like it
+
+
+def webhook(subject: str, md_text: str) -> str:
+    url = os.environ.get("RADAR_WEBHOOK_URL", "").strip()
+    if not url:
+        return "webhook skipped: RADAR_WEBHOOK_URL not set"
+    fmt = os.environ.get("RADAR_WEBHOOK_FORMAT", "slack").strip().lower() or "slack"
+    body = json.dumps(webhook_body(fmt, subject, md_text)).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Content-Type": "application/json", "User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return f"webhook sent ({res.status})"
+    except urllib.error.HTTPError as exc:
+        raise SystemExit(f"Webhook {exc.code}: {exc.read().decode('utf-8', 'replace')[:300]}") from exc
+
 
 def _inline(m: re.Match) -> str:
     attrs = m.group(2) or ""
@@ -54,6 +103,13 @@ def recipients(raw: str) -> list[str]:
 
 
 def send(subject: str, md_text: str) -> str:
+    """Every configured channel gets the report; the first refusal ends the run."""
+    if not os.environ.get("RADAR_WEBHOOK_URL", "").strip():
+        return email(subject, md_text)
+    return webhook(subject, md_text) + " / " + email(subject, md_text)
+
+
+def email(subject: str, md_text: str) -> str:
     to = recipients(os.environ.get("RADAR_EMAIL_TO", ""))
     if not to:
         return "mail skipped: RADAR_EMAIL_TO not set"

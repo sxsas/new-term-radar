@@ -183,18 +183,28 @@ python scripts/gsc_auth.py gsc_client.json   # opens a browser once, writes gsc_
 
 `gsc_client.json` is an OAuth client of type "Desktop app" from Google Cloud Console, in a project with the Search Console API enabled. Then set `"gsc": {"site": "sc-domain:your-site.com"}`. The token is read-only and stays on your machine; `.gitignore` already lists it.
 
-### Mail (optional)
+### Push (optional)
 
-`--mail` sends the report through [Resend](https://resend.com). Set `RESEND_API_KEY`, `EMAIL_FROM` (an address on a domain you verified there) and `RADAR_EMAIL_TO` (comma-separated). `pip install markdown` for the HTML version.
+`--mail` pushes the report out, through both channels at once if both are set:
+
+- Mail, via [Resend](https://resend.com): set `RESEND_API_KEY`, `EMAIL_FROM` (an address on a domain you verified there) and `RADAR_EMAIL_TO` (comma-separated).
+- A chat webhook: set `RADAR_WEBHOOK_URL` and pick the payload with `RADAR_WEBHOOK_FORMAT` (`slack` by default; `feishu` and `dingtalk` also work).
+
+The webhook gets the report as plain text with no Markdown left in it, clipped to 4000 characters on a line boundary. `pip install markdown` for the HTML version of the mail.
 
 ## Run it on GitHub Actions
 
-`.github/workflows/radar.yml` runs `sources` every 8 hours and `daily` once a day, keeps the state in the Actions cache, and writes each report to the run summary. It is off until you opt in:
+`.github/workflows/radar.yml` runs `sources` every 8 hours and `daily` once a day; the repository is the server. Each run writes its report to the run summary, opens an issue (that is the push to your phone), and keeps the report files as an artifact. `state/radar.db` is committed back after every run, so the leads history survives an evicted cache; the other snapshots stay in the Actions cache. Those commits are also repository activity, which solves the other problem: GitHub disables a scheduled workflow after 60 days of inactivity.
 
-1. Fork the repository (a private fork is fine).
-2. Remove `config.json` from `.gitignore` and commit your config. It holds no secrets.
-3. Add the secret `AISA_API_KEY`; optionally `GOANYAPI_API_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, `RADAR_EMAIL_TO`, `GSC_TOKEN_JSON`.
+It is off until you opt in:
+
+1. Push the code to a repository of your own. A public one is worth it — scheduled runs there do not spend Actions minutes.
+2. Commit your `config.json` (it is tracked now and holds no secrets), with your account list and sitemaps.
+3. Add the secret `AISA_API_KEY` (required); optionally `GOANYAPI_API_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, `RADAR_EMAIL_TO`, `RADAR_WEBHOOK_URL`, `RADAR_WEBHOOK_FORMAT`, `GSC_TOKEN_JSON`.
 4. Set the repository variable `RADAR_ENABLED` to `true`.
+5. Optional: create a `radar` label so the issues are tagged. Without it the step falls back to opening an untagged issue.
+
+To see it work now instead of waiting for the schedule, run `daily` by hand from the Actions tab.
 
 ## How the pieces decide
 

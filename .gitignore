@@ -1,5 +1,5 @@
-config.json
-state/
+state/*
+!state/radar.db
 gsc_token.json
 gsc_client.json
 report.md

@@ -434,6 +434,58 @@ def test_mail_recipients_tolerate_how_people_type_them():
     assert notify.recipients("<a@b.com>; c@d.cn\n") == ["a@b.com", "c@d.cn"]
 
 
+def _hooked(monkeypatch) -> list:
+    """Collect what notify posts instead of opening a socket."""
+    sent = []
+
+    class Res:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake(req, timeout=None):
+        sent.append(req)
+        return Res()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    return sent
+
+
+def test_webhook_posts_the_report_as_readable_text(monkeypatch):
+    sent = _hooked(monkeypatch)
+    monkeypatch.delenv("RADAR_EMAIL_TO", raising=False)
+    monkeypatch.setenv("RADAR_WEBHOOK_URL", "https://hooks.example/x")
+    monkeypatch.delenv("RADAR_WEBHOOK_FORMAT", raising=False)
+    out = notify.send("新词雷达 10-03", "## 候选\n\n| 词 | 分 |\n|---|---|\n| reelmimic | 9 |")
+    assert out.startswith("webhook sent") and "mail skipped" in out
+    body = json.loads(sent[0].data)
+    assert "reelmimic" in body["text"] and "|" not in body["text"]
+    assert body["text"].splitlines()[2:5] == ["候选", "", "词 · 分"]
+    assert sent[0].full_url == "https://hooks.example/x" and sent[0].method == "POST"
+
+
+def test_webhook_body_matches_the_chat_app():
+    assert notify.webhook_body("slack", "", "hi") == {"text": "hi"}
+    assert notify.webhook_body("feishu", "", "hi") == {"msg_type": "text", "content": {"text": "hi"}}
+    assert notify.webhook_body("dingtalk", "", "hi") == {"msgtype": "text", "text": {"content": "hi"}}
+    assert notify.webhook_body("whatever", "s", "hi")["text"] == "s\n\nhi"
+
+
+def test_webhook_long_reports_are_clipped():
+    text = notify.plain("\n".join(f"line {i} " + "x" * 80 for i in range(200)))
+    assert len(text) <= notify.WEBHOOK_MAX + 2 and text.endswith("…")
+
+
+def test_push_without_any_channel_is_skipped(monkeypatch):
+    monkeypatch.delenv("RADAR_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("RADAR_EMAIL_TO", raising=False)
+    assert notify.send("s", "x").startswith("mail skipped")
+
+
 # --- the generic terms behind the names ---------------------------------------------------------
 
 from radar import usecases  # noqa: E402

@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", help="write the report (Markdown) here; `daily` also writes a .json beside it")
     p.add_argument("--skip", default="", help="comma-separated: " + ",".join(sorted(SKIPPABLE)))
     p.add_argument("--new-sites", action="store_true", help="run the weekly new-site signal today")
-    p.add_argument("--mail", action="store_true", help="mail the report (see radar/notify.py)")
+    p.add_argument("--mail", action="store_true", help="push the report out, mail and/or webhook (see radar/notify.py)")
     args = p.parse_args(argv)
     args.skip = {s for s in args.skip.split(",") if s}
     unknown = args.skip - SKIPPABLE

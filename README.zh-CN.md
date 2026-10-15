@@ -176,18 +176,28 @@ python scripts/gsc_auth.py gsc_client.json   # 打开一次浏览器授权，写
 
 `gsc_client.json` 是 Google Cloud Console 里类型为「桌面应用」的 OAuth 客户端，所在项目要启用 Search Console API。然后设置 `"gsc": {"site": "sc-domain:你的域名"}`。授权是只读的，凭证只留在你自己的机器上，`.gitignore` 已经把它排除了。
 
-### 邮件（可选）
+### 推送（可选）
 
-`--mail` 通过 [Resend](https://resend.com) 发送报告。设置 `RESEND_API_KEY`、`EMAIL_FROM`（你在 Resend 验证过的域名下的地址）和 `RADAR_EMAIL_TO`（多个用逗号分隔）。要 HTML 版需要 `pip install markdown`。
+`--mail` 会把报告推出去，两条通道可以同时用：
+
+- 邮件，通过 [Resend](https://resend.com)：设置 `RESEND_API_KEY`、`EMAIL_FROM`（你在 Resend 验证过的域名下的地址）和 `RADAR_EMAIL_TO`（多个用逗号分隔）。
+- 聊天 webhook：设置 `RADAR_WEBHOOK_URL`，用 `RADAR_WEBHOOK_FORMAT` 选格式（默认 `slack`，也支持 `feishu`、`dingtalk`）。
+
+webhook 收到的是压平后的纯文本，没有 Markdown 标记，超过 4000 字符会按行截断。要邮件的 HTML 版需要 `pip install markdown`。
 
 ## 在 GitHub Actions 上跑
 
-`.github/workflows/radar.yml` 每 8 小时跑一次 `sources`、每天跑一次 `daily`，状态存在 Actions 缓存里，报告写到每次运行的摘要页。默认关闭，需要你主动开启：
+`.github/workflows/radar.yml` 每 8 小时跑一次 `sources`、每天跑一次 `daily`，仓库自己就是服务器。每次运行的报告写进运行摘要页，同时开一个 issue（手机上就是推送），报告文件留在 artifact 里。`state/radar.db` 每次运行后提交回仓库，所以线索历史不会因为缓存被清而丢；其余快照放 Actions 缓存。这次提交本身也是仓库活动——公开仓库的定时任务闲置 60 天会被自动禁用，这一点顺带解决了。
 
-1. Fork 这个仓库（私有 fork 也可以）。
-2. 把 `config.json` 从 `.gitignore` 里删掉，提交你的配置。配置里没有任何密钥。
-3. 添加 secret `AISA_API_KEY`；可选 `GOANYAPI_API_KEY`、`RESEND_API_KEY`、`EMAIL_FROM`、`RADAR_EMAIL_TO`、`GSC_TOKEN_JSON`。
+默认关闭，需要你主动开启：
+
+1. 把代码推到你自己的 GitHub 仓库。公开仓库的定时任务不消耗 Actions 额度，所以推荐公开。
+2. 提交 `config.json`（它已经在版本控制里了，内容不含任何密钥），按需改账号名单和 sitemap。
+3. 添加 secret `AISA_API_KEY`（必需）；可选 `GOANYAPI_API_KEY`、`RESEND_API_KEY`、`EMAIL_FROM`、`RADAR_EMAIL_TO`、`RADAR_WEBHOOK_URL`、`RADAR_WEBHOOK_FORMAT`、`GSC_TOKEN_JSON`。
 4. 把仓库变量 `RADAR_ENABLED` 设为 `true`。
+5. 可选：在仓库里建一个 `radar` label，issue 会打上它；没建也能跑，会退回不打标签。
+
+想立刻看到结果，去 Actions 页手动 `Run workflow` 跑一次 `daily`，不用等定时。
 
 ## 各部分怎么判断
 

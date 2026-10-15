@@ -1,0 +1,34 @@
+{
+  "lang": "zh",
+
+  "x_accounts": {
+    "labs": ["AnthropicAI", "claudeai", "OpenAI", "GoogleDeepMind", "GoogleAIStudio",
+             "Alibaba_Qwen", "deepseek_ai", "Kimi_Moonshot", "MiniMax__AI", "xai",
+             "AIatMeta", "MistralAI", "huggingface", "cursor_ai", "Kling_ai", "runwayml"],
+    "bloggers": ["dotey", "op7418", "_akhaliq", "simonw", "swyx", "karpathy", "rowancheung"]
+  },
+
+  "sitemaps": {
+    "glama": {"index": "https://glama.ai/sitemap.xml", "shards": "/(mcp-servers|mcp-remote-servers)/\\d+\\.xml$|blog-posts", "pause": 2},
+    "lobehub-mcp": {"index": "https://lobehub.com/sitemap/mcp.xml", "pause": 5, "strip_locale": true}
+  },
+
+  "topics": {
+    "AI video": "\\bvideos?\\b|animat|avatar|lip ?sync|seedance|\\bveo\\b|\\bsora\\b|kling|hailuo|remotion|hyperframes"
+  },
+
+  "known_terms": ["claude code", "remotion"],
+  "stop_words": [],
+
+  "judge": {"model": "gpt-4.1-mini", "min_score": 0.5},
+  "breakout": {"window_days": 14, "min_stars": 300, "velocity_min": 200, "delta_min": 400},
+
+  "new_sites": {"queries": {}, "weekday": 0},
+
+  "review": {"after_days": 14, "per_day": 5},
+
+  "usecases": {"per_day": 0, "model": "claude-sonnet-4-6", "benchmark": "gpts", "min_volume": 50, "min_daily": 300,
+               "related": true, "related_geo": "US", "country_trends": true, "country_min_volume": 1000, "country_max": 8},
+
+  "gsc": {}
+}
